@@ -1,102 +1,117 @@
 #!/bin/sh
 
-echo -e  "VMware datastore mover. Ver1.3.0 (c)taiichi.nuki 2012-2015\n"
+echo -e  "VMware virtual machine cloning. Ver1.0.0 (c)taiichi.nuki 2012-2015\n"
 
+# Function definition
+function info {
+  echo -e "$(date '+%Y%m%d %T') Info: $@"
+}
 
+function error {
+  echo -e "$(date '+%Y%m%d %T') Error: $@" 1>&2
+}
+
+function abort {
+  echo -e "$(date '+%Y%m%d %T') Error: $@\n" 1>&2
+  exit 1
+}
 
 # Initialization
-vmDatabase=$(vim-cmd vmsvc/getallvms | awk '{printf "%s,%s,%s,%s", $2, $1, $3, $4}' | tail +2 | sort | sed -e s/[\]\[]//g)
-
-migVMListFile=$1
-detDS=$2
+datastoreBase=/vmfs/volumes
 cmdName=$(basename $0)
+srcVMName=$1
+dstVMName=$2
+dstDatastore=$3
 
-# Check parameter.
-if [ $# -ne 2 ]; then
-  echo -e "Usage: $cmdName <vmlist-file> <new-datastore>\n" 1>&2
-  exit 1
-fi
-if [ ! -e $vmList ]; then
-  echo -e "Error: vmlist=\"$vmList\" not found.\n" 1>&2
-  exit 1
-fi
-if [ ! -d $newDatastore ]; then
-  echo -e "Error: new-datastore=\"$newDatastore\" not found.\n" 1>&2
-  exit 1
+vmDatabase=$(vim-cmd vmsvc/getallvms | awk 'NR>2 {printf "%s,%s,%s,%s", $2, $1, $3, $4}' | sort | sed -e s/[\]\[]//g)
+vmRecord=$(echo "$vmDatabase" | grep "^$srcVMName,")
+
+srcVMID=$(echo $vmRecord | awk '{print $2}')
+srcDatastore=$(echo $vmRecord | awk '{print $3}')
+srcDirectory=$(echo $vmRecord | awk '{print $4}')
+srcPath="$datastoreBase/$srcDatastore/$srcDirectory"
+
+dstDirectory="$dstVMName"
+dstpath="$datastoreBase/$dstDatastore/$dstDirectory"
+
+# Parameter number check
+if [ $# -ne 3 ]; then
+  echo -e "Usage: $cmdName <src-vmname> <dst-vmname> <dst-datastore>\n" 1>&2
+  abort "Parameter number is not enough."
 fi
 
-# List target vm(s).
-echo '----- List target of vm(s) -----'
-cat $vmList
-echo -en "\nDo you want to continue? (Y/[N]): "
-read go
+# Source virtual machine existence check
+if [ -z $vmRecord ]; then
+  abort "Source virtual machine was not found in this ESXi."
+fi
+
+# Source virtual machine power state check
+vim-cmd vmsvc/power.getstate $srcVMID | grep -q off 
+if [ $? -ne 0 ]; then
+  abort "Source virtual machine is not power off."
+fi
+
+# Destination virtual machine name duplicate check
+if [ ! $(cat "$vmDatabase" | grep "^$dstVMName,") ]; then
+  abort "Destination virtual machine name is duplicated."
+fi
+
+# Destination datastore existence check
+if [ ! -d "$datastoreBase/$dstDatastore" ]; then
+  abort "Destination datastore was not found in this ESXi."
+fi
+
+# Destination virtual machine directory existence check
+if [ -d "$dstPath" ]; then
+  abort "Destination virtual machine directory is already exist."
+fi
+
+# User confirmation 
+echo '----- Source infomation ----------'
+echo "VM ID:       $srcVMID"
+echo "Name:        $srcVMName"
+echo "Datastore:   $srcDatastore"
+echo "Directory:   $srcDirectory"
+echo '----- Destination infomation -----'
+echo "Name:        $dstVMName"
+echo "Datastore:   $dstDatastore"
+echo "Directory:   $dstVMPath"
+echo -e '----------------------------------\n'
+
+read -p "Do you want to continue? (Y/[N]): " go
 if [ $(echo $go | sed -e 's/y/Y/') != Y ]; then
-  echo -e "Info: The operation has been canceled.\n"
+  info "The operation has been canceled.\n"
   exit 0
 fi
-echo -e "\n$(date '+%y/%m/%d %T') Info: Process started."
 
-# Check
-echo "$(date '+%y/%m/%d %T') Info: Consistency check started."
-while read vmName vmID vmDS vmDir; do
-  oldPath=/vmfs/volumes/$vmDS/$(echo "$vmdb" | grep ^$vmName,.* | cut -d ',' -f 4 | awk -F '/' '{$NF=""; print $0}')
-  if [ ! -e $oldPath ]; then
-    (
-      echo "$(date '+%y/%m/%d %T') Error: Consistency check failed."
-      echo "Error: vmName=$vmName not found."
-      echo -e "       Please check the registration status of the virtual machine.\n"
-    ) 1>&2
-    exit 1
-  fi
-  if [ -e $newPath/$vmName ]; then
-    (
-      echo "$(date '+%y/%m/%d %T') Error: Consistency check failed."
-      echo -e "Error: vmName=$vmName already exist.\n"
-    ) 1>&2
-    exit 1
-  fi
-  vmid=$(echo "$vmdb" | grep ^$vmName,.* | cut -d ',' -f 2)
-  vim-cmd vmsvc/power.getstate $vmid | grep -q off
-  if [ $? -ne 0 ]; then
-    (
-      echo "$(date '+%y/%m/%d %T') Error: Consistency check failed."
-      echo -e "Error: vmName=$vmName is not power off.\n"
-    ) 1>&2
-    exit 1
-  fi
-done < $vmList
-echo "$(date '+%y/%m/%d %T') Info: Consistency check completed."
+info "Process started."
 
-# Unregister VMs
-echo "$(date '+%y/%m/%d %T') Info: VM unregister started."
-while vmName, in `cat $vmList`; do
-  vmid=`echo "$vmdb" | grep ^$vmName,* | cut -d "," -f 2`
-  vim-cmd vmsvc/unregister $vmid
-  if [ $? -ne 0 ]; then
-    echo "$(date '+%y/%m/%d %T')` Error: VM unregister failed."
-    echo "Error: vmName=$vmName unregister failed." 1>&2
-    echo
-    exit 1
-  fi
+# Source virtual machine unregistering 
+info "Source virtual machine unregistering started."
+vim-cmd vmsvc/unregister $srcVMID
+if [ $? -ne 0 ]; then
+  info "Source virtual machine unregistering failed."
+fi
+info "Source virtual machine unregistering completed."
+
+# File copy without .vmdk
+mkdir -p "$dstPath"
+
+find "$srcPath" -name
+
+for file in `ls $vmPath | grep -Ev ".*\.vmdk$|.*\.vmsn$|.*\.vswp|.*\.lck$|.*\.vmx~$"`; do
+        cp $vmPath/$file $backupPath/
+        if [ $? -ne 0 ]; then
+                echo "`date '+%y/%m/%d(%a) %T'` Error: File copy failed."
+                echo "Error: File copy failed."
+                echo "       Source file=$vmPath/$file"
+                echo -e "       Dest   file=$backupPath/$file\n"
+                exit 1
+        fi
 done
-echo "$(date '+%y/%m/%d %T')` Info: VM unregister completed."
-# Copy file.
-echo "$(date '+%y/%m/%d %T')` Info: File copy started."
-for vmName in `cat $vmList`; do
-  oldPath=/vmfs/volumes/$(echo "$vmdb" | grep ^$vmName,* | cut -d "," -f 3)
-  echo "$(date '+%y/%m/%d %T')` Info: Now processing vmName=$vmName."
-  echo "Info: Process detail."
-  echo "      Source path=$oldPath"
-  echo "      Dest   path=$newPath"
-  mkdir $newPath/$vmName
-  if [ $? -ne 0 ]; then
-    echo "$(date '+%y/%m/%d %T')` Error: File copy failed."
-    echo "Error: Make dir=$newPath/$vmName failed." 1>&2
-    echo
-    exit 1
-  fi
-  # Copy file without vmdk.
-  for file in `ls $oldPath/$vmName | grep -v .*\.vmdk$`; do
+
+
+for file in `ls $oldPath/$vmName | grep -v .*\.vmdk$`; do
     cp $oldPath/$vmName/$file $newPath/$vmName/
     if [ $? -ne 0 ]; then
       echo "$(date '+%y/%m/%d %T')` Error: File copy failed."
