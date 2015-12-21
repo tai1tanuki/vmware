@@ -2,6 +2,8 @@
 
 echo -e  "VMware datastore mover. Ver1.3.0 (c)taiichi.nuki 2012-2015\n"
 
+
+
 # Initialization
 vmDatabase=$(vim-cmd vmsvc/getallvms | awk '{printf "%s,%s,%s,%s", $2, $1, $3, $4}' | tail +2 | sort | sed -e s/[\]\[]//g)
 
