@@ -90,16 +90,16 @@ info "Process started."
 info "Source virtual machine unregistering started."
 vim-cmd vmsvc/unregister $srcVMID
 if [ $? -ne 0 ]; then
-  info "Source virtual machine unregistering failed."
+  abort "Source virtual machine unregistering failed."
 fi
 info "Source virtual machine unregistering completed."
 
 # File copy without .vmdk
 mkdir -p "$dstPath"
 
-find "$srcPath" -name
+find "$srcPath" -name 
 
-for file in `ls $vmPath | grep -Ev ".*\.vmdk$|.*\.vmsn$|.*\.vswp|.*\.lck$|.*\.vmx~$"`; do
+for file in $(ls $vmPath | egrep -v ".*\.vmdk$|.*\.vmsn$|.*\.vswp|.*\.lck$|.*\.vmx~$"); do
         cp $vmPath/$file $backupPath/
         if [ $? -ne 0 ]; then
                 echo "`date '+%y/%m/%d(%a) %T'` Error: File copy failed."
