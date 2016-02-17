@@ -21,7 +21,6 @@ srcDatastore=$(echo $vmRecord | awk -F ',' '{print $3}' | sed 's/[\]\[]//g')
 dstPath="$datastoreBase/$dstDatastore/$dstDirectory"
 srcPath="$datastoreBase/$srcDatastore/$srcDirectory"
 
-
 # Parameter number check
 if [ $# -ne 3 ]; then
   echo -e "Usage: $cmdName <src-vmname> <dst-vmname> <dst-datastore>\n" 1>&2
