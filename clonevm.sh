@@ -58,7 +58,7 @@ fi
 
 # Destination datastore existence check
 if [ ! -d "$datastoreBase/$dstDatastore" ]; then
-  abort "Destination datastore was not found in this ESXi."
+  abort "Destination datastore was not found in this host."
 fi
 
 # Destination virtual machine directory existence check
@@ -80,7 +80,7 @@ echo -e '----------------------------------\n'
 
 read -p "Do you want to continue? (Y/[N]): " go
 if [ $(echo $go | sed -e 's/y/Y/') != Y ]; then
-  info "The operation has been canceled.\n"
+  info "Operation has been canceled.\n"
   exit 0
 fi
 
@@ -125,25 +125,14 @@ done
 
 info "Virtual Disk cloning ended."
 
-# Register VMs
-echo "$(date '+%y/%m/%d %T')` Info: VM register started."
-for vmName in `cat $vmList`; do
-  vim-cmd solo/registervm $newPath/$vmName/$vmName.vmx
-  if [ $? -ne 0 ]; then
-    echo "$(date '+%y/%m/%d %T')` Error: VM register failed."
-    echo "Error: vmName=$vmName register failed." 1>&2
-    echo
-    exit 1
-  fi
-done
-echo "$(date '+%y/%m/%d %T')` Info: VM register completed."
-# Delete file.
-echo "$(date '+%y/%m/%d %T')` Info: File delete started."
-while read vmName; do
-  oldPath=/vmfs/volumes/$(echo "$vmdb" | grep "^$vmName,.*" | cut -d ',' -f 3)
-  echo "$(date '+%y/%m/%d %T')` Info: Now processing vmName=$vmName."
-  rm -fr $oldPath/$vmName
-done < $vmList
-echo "$(date '+%y/%m/%d %T') Info: File delete completed."
-echo -e "$(date '+%y/%m/%d %T') Info: All prcess completed.\n"
+# Cloned Virtual Machine registering
+info "Cloned Virtual Machine registering started."
+vim-cmd solo/registervm "$dstPath/$dstVMName.vmx"
+if [ $? -ne 0 ]; then
+    error "Cloned Virtual Machine registering failed."
+fi
+info "Cloned Virtual Machine registering ended."
+
+info "All process has been completed." 
+
 exit 0
