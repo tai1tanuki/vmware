@@ -1,6 +1,6 @@
 #!/bin/sh
 
-echo -e  "VMware virtual machine cloning. Ver1.0.0 (c)taiichi.nuki 2012-2015\n"
+echo -e  "VMware virtual machine cloning tool. Ver1.0.0 (c)taiichi.nuki 2012-2016\n"
 
 # Function definition
 function info {
@@ -17,7 +17,7 @@ function abort {
 }
 
 # Initialization
-datastoreBase=/vmfs/volumes
+datastoreBase="/vmfs/volumes"
 cmdName=$(basename $0)
 srcVMName=$1
 dstVMName=$2
@@ -94,49 +94,38 @@ if [ $? -ne 0 ]; then
 fi
 info "Source virtual machine unregistering completed."
 
-# File copy without .vmdk
+# Virtual Machine file copy (w/o Virtual Disk)
+info "Virtual Machine file copy started."
+
 mkdir -p "$dstPath"
 
-find "$srcPath" -name 
-
-for file in $(ls $vmPath | egrep -v ".*\.vmdk$|.*\.vmsn$|.*\.vswp|.*\.lck$|.*\.vmx~$"); do
-        cp $vmPath/$file $backupPath/
-        if [ $? -ne 0 ]; then
-                echo "`date '+%y/%m/%d(%a) %T'` Error: File copy failed."
-                echo "Error: File copy failed."
-                echo "       Source file=$vmPath/$file"
-                echo -e "       Dest   file=$backupPath/$file\n"
-                exit 1
-        fi
+for file in $(ls $srcPath | egrep -v ".*\.vmdk$|.*\.vmsn$|.*\.vswp|.*\.lck$|.*\.vmx~$"); do
+  cp -p "$srcPath/$file" "$dstPath/"
+  if [ $? -ne 0 ]; then
+    error "Virtual Machine file copy failed. Source=$srcPath/$file Destination=$dstPath"
+    abort "Process aborted."
+  fi      
 done
 
+info "Virtual Machine file copy ended."
 
-for file in `ls $oldPath/$vmName | grep -v .*\.vmdk$`; do
-    cp $oldPath/$vmName/$file $newPath/$vmName/
-    if [ $? -ne 0 ]; then
-      echo "$(date '+%y/%m/%d %T')` Error: File copy failed."
-      echo "Error: File copy failed." 1>&2
-      echo "       Source file=$oldPath/$vmName/$file" 1>&2
-      echo "       Dest   file=$newPath/$vmName/$file" 1>&2
-      echo
-      exit 1
-    fi
-  done
-  # Clone vmdk file.
-  for vmdkFile in `ls $oldPath/$vmName/*.vmdk | grep -v .*-flat\.vmdk$`; do
-    vmdkFile=`basename $vmdkFile`
-    vmkfstools -i $oldPath/$vmName/$vmdkFile -d thin $newPath/$vmName/$vmdkFile
-    if [ $? -ne 0 ]; then
-      echo "$(date '+%y/%m/%d %T')` Error: File copy failed."
-      echo "Error: vmdk file clone failed." 1>&2
-      echo "       cmdLine=vmkfstools -i $oldPath/$vmName/$vmdkFile -d thin $newPath/$vmName/$vmdkFile" 1>&2
-      echo
-      exit 1
-    fi
-  done
+# Virtual Disk cloning
+info "Virtual Disk cloning started."
+
+for file in $(ls $srcPath/*.vmdk | egrep -v ".*-flat\.vmdk$"); do
+  file=$(basename $file)
+  $cmd="vmkfstools -i $srcPath/$file -d thin $dstPath/$file"
+
+  $cmd
+  if [ $? -ne 0 ]; then
+    error "Virtual Disk cloning failed. Source=$srcPath/$file Destination=$dstPath/$file CommandLine=$cmd"
+    abort "Process aborted."
+  fi      
 done
-echo "$(date '+%y/%m/%d %T')` Info: File copy completed."
-# Unregister VMs
+
+info "Virtual Disk cloning ended."
+
+# Register VMs
 echo "$(date '+%y/%m/%d %T')` Info: VM register started."
 for vmName in `cat $vmList`; do
   vim-cmd solo/registervm $newPath/$vmName/$vmName.vmx
